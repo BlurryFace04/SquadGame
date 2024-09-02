@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { ActionGetResponse, ActionPostRequest, ActionPostResponse, ActionError, ACTIONS_CORS_HEADERS, createPostResponse, MEMO_PROGRAM_ID } from "@solana/actions"
 import { Transaction, TransactionInstruction, PublicKey, ComputeBudgetProgram, Connection, clusterApiUrl, SystemProgram, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js"
 import { GoogleAuth, IdTokenClient } from 'google-auth-library'
+import { BlinksightsClient } from 'blinksights-sdk'
 import { connectToDB } from '@/utils/database'
 import Player from '@/models/player'
 import Tx from '@/models/tx'
@@ -9,6 +10,8 @@ import Tx from '@/models/tx'
 const ACTION_URL = "https://squadgames.sendarcade.fun/api/actions/game"
 
 const ADDRESS = new PublicKey('6W1c1XSBGMigN51LhD8A7ScA2dJiVVRksRr6ut9LJpUS')
+
+const client = new BlinksightsClient(process.env.BLINKSIGHTS_API_KEY as string)
 
 async function getIdentityToken(targetAudience: any) {
   const auth = new GoogleAuth()
@@ -28,10 +31,10 @@ async function getIdentityToken(targetAudience: any) {
 export const GET = async (req: Request) => {
 
   const payload: ActionGetResponse = {
-    icon: "https://blue-magnetic-wallaby-228.mypinata.cloud/ipfs/QmRuTdnBUgCDLcskZu5MZ8HMhrzw5n6nvV4L2mkboVeng5",
+    icon: "https://ivory-eligible-hamster-305.mypinata.cloud/ipfs/QmaSX618JpWU54WfQSr3J4nw33fmUc8WzspfHxqcJHZxBx",
     label: "Pay 0.69 SOL",
     title: "Suqad Game",
-    description: "Enter the game, but trust no one—where alliances shatter, and only the cunning survive. The Squad Protocol decides your fate.",
+    description: "\nEnter the game, but trust no one—where alliances shatter, and only the cunning survive. The Squad Protocol decides your fate.",
     disabled: false,
     links: {
       actions: [
@@ -50,7 +53,9 @@ export const GET = async (req: Request) => {
     }
   }
 
-  return Response.json(payload, {
+  const updatedPayload = await client.createActionGetResponseV2(req.url, payload)
+
+  return Response.json(updatedPayload, {
     headers: ACTIONS_CORS_HEADERS
   })
 }
@@ -122,7 +127,6 @@ export const POST = async (req: NextRequest) => {
         fromPubkey: account,
         toPubkey: ADDRESS,
         lamports: 690_000_000
-        // lamports: 0.001 * LAMPORTS_PER_SOL
       }),
       new TransactionInstruction({
         programId: new PublicKey(MEMO_PROGRAM_ID),
@@ -130,6 +134,15 @@ export const POST = async (req: NextRequest) => {
         keys: []
       })
     )
+
+    await client.trackActionV2(account.toBase58(), req.url)
+    let blinksightsActionIdentityInstruction = await client.getActionIdentityInstructionV2(account.toBase58(), req.url)
+
+    if (blinksightsActionIdentityInstruction) {
+      transaction.add(blinksightsActionIdentityInstruction)
+    } else {
+      console.warn("Proceeding without the action identity instruction as it couldn't be generated.")
+    }
 
     transaction.feePayer = account
     transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
